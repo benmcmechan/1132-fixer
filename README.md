@@ -13,6 +13,8 @@ Minimal macOS app with one action:
 
 The app runs local recovery commands for Error 1132 and performs network interface MAC spoofing/reconnect plus DNS cache reset via AppleScript (`do shell script ... with administrator privileges`) so macOS can present native admin-password prompts.
 
+Recent compatibility update: MAC address changes now try `ifconfig ... lladdr ...` first and fall back to `ifconfig ... ether ...` to avoid failures seen on newer macOS versions (including Sequoia).
+
 ## Updates
 
 On launch, the app checks the GitHub Releases `latest` endpoint and prompts if a newer version is available.

@@ -103,7 +103,8 @@ final class AppViewModel: ObservableObject {
         let spoofScript = [
             "/usr/sbin/networksetup -setnetworkserviceenabled \(shellSingleQuote(interface.networkService)) off",
             "/bin/sleep 1",
-            "/sbin/ifconfig \(shellSingleQuote(interface.device)) ether \(shellSingleQuote(spoofedMAC))",
+            // macOS Sequoia can reject `ether` here; prefer `lladdr` and keep `ether` as fallback for older systems.
+            "(/sbin/ifconfig \(shellSingleQuote(interface.device)) lladdr \(shellSingleQuote(spoofedMAC)) || /sbin/ifconfig \(shellSingleQuote(interface.device)) ether \(shellSingleQuote(spoofedMAC)))",
             "/usr/sbin/networksetup -setnetworkserviceenabled \(shellSingleQuote(interface.networkService)) on",
             "/bin/sleep 2"
         ].joined(separator: " && ")
