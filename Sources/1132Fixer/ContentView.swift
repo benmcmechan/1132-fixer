@@ -127,6 +127,12 @@ done
         logs.removeAll()
     }
 
+    func copyLogs() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(logs.joined(separator: "\n"), forType: .string)
+    }
+
     func logMessage(_ text: String) {
         appendLog(text)
     }
@@ -503,6 +509,7 @@ Last action status: \(lastStatus)
 struct ContentView: View {
     @StateObject private var vm = AppViewModel()
     private let repositoryURL = URL(string: "https://github.com/PrimeUpYourLife/1132-fixer")!
+    private let websiteURL = URL(string: "https://1132-fixer.xyz")!
     private let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "dev"
 
     @State private var updateAlertIsPresented = false
@@ -525,15 +532,14 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 18) {
-                HStack {
-                    Spacer()
-                    BugReportButton(isDisabled: isReportingBug) {
-                        showBugReportForm = true
-                    }
-                }
-
-                HeaderCard(isRunning: vm.isRunning, repositoryURL: repositoryURL, appVersion: appVersion)
+            VStack(spacing: 14) {
+                HeaderCard(
+                    repositoryURL: repositoryURL,
+                    websiteURL: websiteURL,
+                    onReportBug: { showBugReportForm = true },
+                    isReportBugDisabled: isReportingBug,
+                    appVersion: appVersion
+                )
 
                 HStack(spacing: 14) {
                     ActionCard(
@@ -546,9 +552,11 @@ struct ContentView: View {
                     )
                 }
 
-                LogPanel(logs: vm.logs, onClear: vm.clearLogs)
+                LogPanel(logs: vm.logs, onCopy: vm.copyLogs, onClear: vm.clearLogs)
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 20)
         }
         .frame(width: 760, height: 520)
         .task {
@@ -624,29 +632,6 @@ struct ContentView: View {
     }
 }
 
-private struct BugReportButton: View {
-    let isDisabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label("Report a bug", systemImage: "ladybug.fill")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .background(Color.black.opacity(0.24), in: Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(Color(red: 0.95, green: 0.64, blue: 0.18).opacity(0.65), lineWidth: 1)
-                )
-                .opacity(isDisabled ? 0.58 : 1.0)
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-    }
-}
-
 private struct BugReportFormSheet: View {
     @Binding var email: String
     @Binding var message: String
@@ -700,12 +685,15 @@ private struct BugReportFormSheet: View {
 }
 
 private struct HeaderCard: View {
-    let isRunning: Bool
     let repositoryURL: URL
+    let websiteURL: URL
+    let onReportBug: () -> Void
+    let isReportBugDisabled: Bool
     let appVersion: String
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color.white.opacity(0.14))
@@ -729,19 +717,19 @@ private struct HeaderCard: View {
                     .foregroundStyle(.white.opacity(0.72))
             }
 
-            Spacer()
-
-            Link(destination: repositoryURL) {
-                Label("GitHub", systemImage: "link.circle.fill")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .background(Color.black.opacity(0.24), in: Capsule())
+                Spacer()
             }
-            .buttonStyle(.plain)
 
-            StatusBadge(isRunning: isRunning)
+            HStack(spacing: 10) {
+                HeaderLinkButton(title: "GitHub", systemImage: "link.circle.fill", destination: repositoryURL)
+                HeaderLinkButton(title: "Website", systemImage: "globe", destination: websiteURL)
+                HeaderActionButton(
+                    title: "Report a bug",
+                    systemImage: "ladybug.fill",
+                    isDisabled: isReportBugDisabled,
+                    action: onReportBug
+                )
+            }
         }
         .padding(18)
         .background(
@@ -755,21 +743,54 @@ private struct HeaderCard: View {
     }
 }
 
-private struct StatusBadge: View {
-    let isRunning: Bool
+private struct HeaderLinkButton: View {
+    let title: String
+    let systemImage: String
+    let destination: URL
 
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(isRunning ? Color.orange : Color.green)
-                .frame(width: 10, height: 10)
-            Text(isRunning ? "Task Running" : "Ready")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+        Link(destination: destination) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Color.black.opacity(0.24), in: Capsule())
+        .buttonStyle(.plain)
+        .modifier(HeaderButtonChrome())
+    }
+}
+
+private struct HeaderActionButton: View {
+    let title: String
+    let systemImage: String
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.58 : 1.0)
+        .modifier(HeaderButtonChrome())
+    }
+}
+
+private struct HeaderButtonChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.black.opacity(0.24))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
     }
 }
 
@@ -783,28 +804,32 @@ private struct ActionCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
                     Image(systemName: systemImage)
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(tint)
-                    Spacer()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(title)
+                            .font(.system(size: 19, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+
+                        Text(subtitle)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.78))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 12)
+
                     Image(systemName: "arrow.right")
                         .font(.system(size: 13, weight: .black))
                         .foregroundStyle(.white.opacity(0.7))
                 }
-
-                Text(title)
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
+            .padding(15)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Color.black.opacity(0.26))
@@ -822,6 +847,7 @@ private struct ActionCard: View {
 
 private struct LogPanel: View {
     let logs: [String]
+    let onCopy: () -> Void
     let onClear: () -> Void
 
     var body: some View {
@@ -832,6 +858,13 @@ private struct LogPanel: View {
                     .foregroundStyle(.white)
 
                 Spacer()
+
+                Button("Copy") {
+                    onCopy()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.white.opacity(0.2))
+                .disabled(logs.isEmpty)
 
                 Button("Clear") {
                     onClear()
