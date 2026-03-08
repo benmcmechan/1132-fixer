@@ -80,7 +80,7 @@ for domain in gui/"$(/usr/bin/id -u)" user; do
 done
 """#
     private let refreshDNSAppleScript = #"do shell script "/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder" with administrator privileges"#
-    private let launchZoomCommand = #"open -a "zoom.us""#
+    private let zoomBinaryPath = "/Applications/zoom.us.app/Contents/MacOS/zoom.us"
 
     func startZoom() {
         runTask("Start Zoom") {
@@ -114,7 +114,7 @@ done
             let launchOutput = try await self.runProcess(
                 stepName: "Launch Zoom",
                 executable: Constants.bashPath,
-                arguments: ["-c", self.launchZoomCommand]
+                arguments: ["-c", self.makeLaunchZoomCommand()]
             )
 
             return [stopZoomOutput, macSpoofOutput, resetOutput, dnsOutput, stopUpdatersOutput, launchOutput]
@@ -173,11 +173,10 @@ Last action status: \(lastStatus)
             defer { isRunning = false }
             do {
                 let output = try await action()
-                if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    appendLog("Done.")
-                } else {
+                if !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     appendLog(output)
                 }
+                appendLog("Done.")
                 onSuccess?()
             } catch {
                 appendLog("Error: \(error.localizedDescription)")
@@ -258,9 +257,18 @@ Last action status: \(lastStatus)
             summary = "MAC spoofed on \(interface.kind.rawValue) (\(interface.device), service: \(interface.networkService)) -> \(spoofedMAC); network service restarted"
         } else {
             let detail = actualMAC.isEmpty
-                ? "Could not read current MAC address after spoofing."
+                ? "Could not read the current MAC address after spoofing."
                 : "Current MAC (\(actualMAC)) does not match target (\(spoofedMAC))."
-            summary = "Warning: MAC address was not changed on \(interface.kind.rawValue) (\(interface.device)). \(detail) Your macOS version or network adapter may be blocking MAC spoofing. Zoom may still show error 1132."
+            summary = """
+Warning: MAC address was not changed on \(interface.kind.rawValue) (\(interface.device)). \(detail)
+This is a known macOS limitation on Apple Silicon Macs (macOS Sonoma 14 and later): \
+the OS blocks Wi-Fi MAC spoofing at the driver level. Zoom will likely still show error 1132.
+What you can try:
+  1. Connect via Ethernet — MAC spoofing still works on Ethernet adapters.
+  2. Use your phone as a hotspot — this gives you a different network identity entirely.
+  3. Turn on Private Wi-Fi Address for your network in System Settings > Wi-Fi, \
+disconnect, and reconnect before running Start Zoom again.
+"""
         }
 
         let trimmedCommandOutput = commandOutput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -410,6 +418,27 @@ Last action status: \(lastStatus)
         }
 
         return result
+    }
+
+    private func makeLaunchZoomCommand() -> String {
+        guard FileManager.default.fileExists(atPath: zoomBinaryPath) else {
+            return #"open -a "zoom.us""#
+        }
+        // Launch Zoom under a sandbox that blocks reads of its stored device-fingerprint
+        // databases. This forces Zoom to generate a fresh device identity, helping bypass
+        // error 1132 on systems where ifconfig MAC spoofing is blocked (e.g. Apple Silicon
+        // with macOS Sonoma 14+).
+        let profile = """
+(version 1)
+(allow default)
+(deny file-read*
+  (regex
+    #"^/Users/[^.]+/Library/Application Support/zoom.us/data/.*\\.db$"
+    #"^/Users/[^.]+/Library/Application Support/zoom.us/data/.*\\.db-journal$"
+  )
+)
+"""
+        return "nohup /usr/bin/sandbox-exec -p \(shellSingleQuote(profile)) \(shellSingleQuote(zoomBinaryPath)) >/dev/null 2>&1 &"
     }
 
     private func generateRandomMACAddress() throws -> String {
